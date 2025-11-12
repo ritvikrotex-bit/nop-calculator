@@ -30,6 +30,9 @@ wheels/
 # IDE
 .vscode/
 .idea/
+.cursor/
+.codeium/
+.windsurf/
 *.swp
 *.swo
 *~
