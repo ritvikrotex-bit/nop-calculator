@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Report Maker
 
 A Streamlit-based Python application that processes Excel files and generates financial reports. 
@@ -176,3 +177,7 @@ See [`DEPLOYMENT.md`](DEPLOYMENT.md) for local and Streamlit Cloud deployment in
 
 **Note**: If you encounter any issues during setup, make sure Python 3.10+ is properly installed and accessible from your command line.
 
+=======
+# Report-maker
+Automated financial report generator
+>>>>>>> 0899c169acc12a3ee0cbf2df376b26a220d7bef0
