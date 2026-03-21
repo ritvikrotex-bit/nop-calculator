@@ -485,14 +485,10 @@ with st.sidebar:
 
     if st.button("🔄 Fetch Live Prices", use_container_width=True, type="primary"):
         with st.spinner("Connecting to markets…"):
-            # Collect custom tickers from all rows
+            # Collect custom tickers from Tab 1 rows only
             extra = {}
             for r in st.session_state.rows:
                 if r["symbol"] == "Custom" and r.get("custom_ticker"):
-                    label = r.get("custom_name") or r["custom_ticker"]
-                    extra[label] = r["custom_ticker"]
-            for r in st.session_state.manual_rows:
-                if r["Symbol"] == "Custom" and r.get("custom_ticker"):
                     label = r.get("custom_name") or r["custom_ticker"]
                     extra[label] = r["custom_ticker"]
             prices = fetch_prices(extra_tickers=extra if extra else None)
