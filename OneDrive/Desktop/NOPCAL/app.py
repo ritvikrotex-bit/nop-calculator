@@ -820,10 +820,7 @@ st.markdown("---")
 st.markdown("""
 <div style="text-align:center;padding:14px 0;">
     <span style="color:#64748b;font-size:12px;">
-    NOP Calculator v3.2 &nbsp;·&nbsp;
-    Notional = Price × Contract Size &nbsp;·&nbsp;
-    NOP Max = Limit ÷ Notional &nbsp;·&nbsp;
-    Built for dealing desks
+    NOP Calculator v3.2 &nbsp;·&nbsp; Built for dealing desks
     </span>
 </div>
 """, unsafe_allow_html=True)
