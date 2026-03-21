@@ -210,8 +210,11 @@ if "rows" not in st.session_state:
     ]
 if "manual_rows" not in st.session_state:
     st.session_state.manual_rows = [
-        {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0,
-         "Price": 0.0, "Contract Size": 100, "custom_name": "", "custom_ticker": "", "custom_category": "Metals"},
+        {"name": "XAUUSD", "nop_m": 100.0, "open_lots": 0.0, "contract_size": 100, "price": 4500.0},
+        {"name": "XAGUSD", "nop_m": 10.0,  "open_lots": 0.0, "contract_size": 5000, "price": 68.0},
+        {"name": "US30",   "nop_m": 100.0, "open_lots": 0.0, "contract_size": 1,    "price": 45577.0},
+        {"name": "US100",  "nop_m": 100.0, "open_lots": 0.0, "contract_size": 1,    "price": 21648.0},
+        {"name": "US500",  "nop_m": 100.0, "open_lots": 0.0, "contract_size": 1,    "price": 6506.0},
     ]
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -292,6 +295,39 @@ def compute_row(symbol, open_lots, nop_limit_usd, price_override=0.0,
         "Current Exposure": exposure, "Remaining Lots": round(remaining, 2),
         "PnL per $1": pnl_per_1, "Utilization %": round(utilization, 2),
         "Margin/Lot @100x": margin_100,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MANUAL CALCULATION ENGINE  (no yfinance, all inputs provided by user)
+# ══════════════════════════════════════════════════════════════════════════════
+def compute_manual(name, open_lots, nop_m, contract_size, price):
+    """Pure offline calculation — all values supplied by the user."""
+    nop_usd    = nop_m * 1_000_000
+    notional   = price * contract_size
+    nop_max    = (nop_usd / notional) if notional else 0
+    exposure   = abs(open_lots) * notional
+    remaining  = nop_max - abs(open_lots)
+    pnl_per_1  = abs(open_lots) * contract_size
+    utilization = (exposure / nop_usd * 100) if nop_usd > 0 else 0
+    margin_100 = notional / 100 if notional else 0
+    direction  = "NET LONG" if open_lots > 0 else ("NET SHORT" if open_lots < 0 else "FLAT")
+    return {
+        "Symbol":          name or "—",
+        "Name":            name or "—",
+        "Contract Size":   contract_size,
+        "Price":           price,
+        "Open Lots":       open_lots,
+        "Direction":       direction,
+        "Notional/Lot":    notional,
+        "NOP Limit (USD)": nop_usd,
+        "NOP Max Lots":    round(nop_max, 2),
+        "Current Exposure": exposure,
+        "Remaining Lots":  round(remaining, 2),
+        "PnL per $1":      pnl_per_1,
+        "Utilization %":   round(utilization, 2),
+        "Margin/Lot @100x": margin_100,
+        "Category":        "Manual",
     }
 
 
@@ -684,18 +720,17 @@ with tab1:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 2 — MANUAL ENTRY
+# TAB 2 — MANUAL ENTRY  (fully offline, no yfinance)
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
     st.markdown('<div class="sec-hdr">✏️ Manual Position Entry</div>', unsafe_allow_html=True)
-    st.caption("All fields are editable. Choose ✏️ Custom to enter any symbol. Contract Size adjusts all formulas live.")
+    st.caption("Type everything directly — symbol name, NOP in millions, lots, contract size, price. No internet required. Calculations update instantly.")
 
     ma1, ma2, _ = st.columns([1, 1, 4])
     with ma1:
         if st.button("➕ Add Row", use_container_width=True, key="m_add"):
             st.session_state.manual_rows.append(
-                {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0,
-                 "Price": 0.0, "Contract Size": 100, "custom_name": "", "custom_ticker": "", "custom_category": "Metals"}
+                {"name": "", "nop_m": 100.0, "open_lots": 0.0, "contract_size": 1, "price": 0.0}
             )
             st.rerun()
     with ma2:
@@ -705,94 +740,62 @@ with tab2:
                 st.rerun()
 
     manual_results = []
-    sym_opts = list(INSTRUMENTS.keys()) + ["✏️ Custom"]
 
     for i, mrow in enumerate(st.session_state.manual_rows):
         with st.container():
-            stored_sym = mrow.get("Symbol", "XAUUSD")
-            disp_sym   = "✏️ Custom" if stored_sym == "Custom" else stored_sym
-
-            m1, m2, m3, m4, m5 = st.columns([1.3, 1.5, 1.2, 1.2, 1.1])
+            m1, m2, m3, m4, m5 = st.columns([1.2, 1.1, 1.2, 1.2, 1.2])
 
             with m1:
-                msel = st.selectbox("Symbol", sym_opts,
-                    index=sym_opts.index(disp_sym) if disp_sym in sym_opts else 0,
-                    key=f"msym_{i}")
-                is_custom = (msel == "✏️ Custom")
-                msym = "Custom" if is_custom else msel
-                st.session_state.manual_rows[i]["Symbol"] = msym
+                mname = st.text_input("Symbol / Name", value=mrow.get("name", ""),
+                    placeholder="e.g. XAUUSD", key=f"mname_{i}")
+                st.session_state.manual_rows[i]["name"] = mname
 
             with m2:
-                mnop = st.number_input("NOP Limit (USD)", value=int(mrow.get("NOP Limit (USD)", 100_000_000)),
-                    min_value=0, step=1_000_000, key=f"mnop_{i}")
-                st.session_state.manual_rows[i]["NOP Limit (USD)"] = mnop
+                mnop_m = st.number_input("NOP Limit (M)", value=float(mrow.get("nop_m", 100.0)),
+                    min_value=0.0, step=1.0, format="%.1f", key=f"mnop_{i}",
+                    help="In millions — e.g. 100 = $100,000,000")
+                st.session_state.manual_rows[i]["nop_m"] = mnop_m
 
             with m3:
-                mlots = st.number_input("Open Lots", value=float(mrow.get("Open Lots", 0.0)),
-                    step=0.01, format="%.2f", key=f"mlots_{i}", help="+ve = Long, −ve = Short")
-                st.session_state.manual_rows[i]["Open Lots"] = mlots
+                mlots = st.number_input("Open Lots", value=float(mrow.get("open_lots", 0.0)),
+                    step=0.01, format="%.2f", key=f"mlots_{i}",
+                    help="+ve = Long, −ve = Short")
+                st.session_state.manual_rows[i]["open_lots"] = mlots
 
             with m4:
-                if is_custom:
-                    def_cs = int(mrow.get("Contract Size", 1)) or 1
-                else:
-                    def_cs = int(mrow.get("Contract Size", INSTRUMENTS[msym]["contract_size"]))
-                mcs = st.number_input("Contract Size", value=def_cs,
+                mcs = st.number_input("Contract Size", value=int(mrow.get("contract_size", 1)),
                     min_value=1, step=1, key=f"mcs_{i}",
-                    help="Editable — adjusts notional & all formulas")
-                st.session_state.manual_rows[i]["Contract Size"] = mcs
+                    help="oz for metals, 1 for indices")
+                st.session_state.manual_rows[i]["contract_size"] = mcs
 
             with m5:
-                mprice = st.number_input("Price (0=auto)", value=float(mrow.get("Price", 0.0)),
+                mprice = st.number_input("Price", value=float(mrow.get("price", 0.0)),
                     min_value=0.0, step=0.01, format="%.2f", key=f"mprice_{i}")
-                st.session_state.manual_rows[i]["Price"] = mprice
+                st.session_state.manual_rows[i]["price"] = mprice
 
-            # Custom extra fields
-            if is_custom:
-                cx1, cx2, cx3 = st.columns([1.5, 1.5, 1])
-                with cx1:
-                    mcname = st.text_input("Symbol / Name", value=mrow.get("custom_name", ""),
-                        placeholder="e.g. EURUSD", key=f"mcname_{i}")
-                    st.session_state.manual_rows[i]["custom_name"] = mcname
-                with cx2:
-                    mcticker = st.text_input("Yahoo Finance Ticker", value=mrow.get("custom_ticker", ""),
-                        placeholder="e.g. EURUSD=X", key=f"mcticker_{i}")
-                    st.session_state.manual_rows[i]["custom_ticker"] = mcticker
-                with cx3:
-                    mccat = st.selectbox("Category", CATEGORIES,
-                        index=CATEGORIES.index(mrow.get("custom_category", "Metals")),
-                        key=f"mccat_{i}")
-                    st.session_state.manual_rows[i]["custom_category"] = mccat
-            else:
-                mcname, mcticker, mccat = "", "", "Metals"
-
-            manual_results.append(compute_row(
-                msym, mlots, mnop, mprice,
-                contract_size=mcs,
-                custom_name=mcname,
-                custom_category=mccat,
-                custom_ticker=mcticker,
-            ))
+            manual_results.append(compute_manual(mname, mlots, mnop_m, mcs, mprice))
 
         if i < len(st.session_state.manual_rows) - 1:
             st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:6px 0;'>",
                         unsafe_allow_html=True)
 
-    if manual_results:
-        st.markdown('<div class="sec-hdr">📊 Manual Entry Summary</div>', unsafe_allow_html=True)
-        mdf_full = render_summary(manual_results)
+    # Only show results when at least one row has a price entered
+    active_manual = [r for r in manual_results if r["Price"] > 0]
+    if active_manual:
+        st.markdown('<div class="sec-hdr">📊 Summary</div>', unsafe_allow_html=True)
+        render_summary(active_manual)
 
         st.markdown('<div class="sec-hdr">🔍 Instrument Breakdown</div>', unsafe_allow_html=True)
-        render_instrument_cards(manual_results)
+        render_instrument_cards(active_manual)
 
         st.markdown('<div class="sec-hdr">📋 Risk Calculation Table</div>', unsafe_allow_html=True)
-        st.markdown(render_risk_table(manual_results), unsafe_allow_html=True)
+        st.markdown(render_risk_table(active_manual), unsafe_allow_html=True)
 
         st.markdown('<div class="sec-hdr">📥 Export</div>', unsafe_allow_html=True)
-        mdf = pd.DataFrame(manual_results)[[
-            "Symbol", "Name", "Contract Size", "Price", "Open Lots", "Direction",
+        mdf = pd.DataFrame(active_manual)[[
+            "Symbol", "Contract Size", "Price", "Open Lots", "Direction",
             "NOP Limit (USD)", "Notional/Lot", "NOP Max Lots", "Current Exposure",
-            "Remaining Lots", "PnL per $1", "Utilization %",
+            "Remaining Lots", "PnL per $1", "Utilization %", "Margin/Lot @100x",
         ]]
         try:
             mbuf = io.BytesIO()
@@ -813,13 +816,15 @@ with tab2:
             st.download_button("📄 Download CSV", data=mdf.to_csv(index=False),
                 file_name=f"Manual_NOP_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv")
+    else:
+        st.info("Enter a price for at least one row to see calculations.")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
 <div style="text-align:center;padding:14px 0;">
     <span style="color:#64748b;font-size:12px;">
-    NOP Calculator v3.1 &nbsp;·&nbsp;
+    NOP Calculator v3.2 &nbsp;·&nbsp;
     Notional = Price × Contract Size &nbsp;·&nbsp;
     NOP Max = Limit ÷ Notional &nbsp;·&nbsp;
     Built for dealing desks
