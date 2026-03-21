@@ -1,5 +1,5 @@
 """
-Broker NOP Risk Dashboard — v2.0
+NOP Calculator — v3.0
 Real-time Net Open Position monitoring for dealing desks.
 Tracks metals (Gold, Silver) and indices (DJ30, NAS100, S&P500).
 
@@ -9,47 +9,30 @@ Deploy: streamlit run app.py
 import streamlit as st
 import pandas as pd
 import io
-import time
 from datetime import datetime
 
 # ── Page Config ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="NOP Risk Dashboard",
-    page_icon="🛡️",
+    page_title="NOP Calculator",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Theme / CSS ─────────────────────────────────────────────────────────────
+# ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* ── Root ────────────────────────────────────── */
-:root {
-    --bg-primary: #0a0e17;
-    --bg-card: #111827;
-    --bg-card-hover: #1a2235;
-    --border: #1e293b;
-    --accent-blue: #3b82f6;
-    --accent-cyan: #06b6d4;
-    --accent-green: #10b981;
-    --accent-amber: #f59e0b;
-    --accent-red: #ef4444;
-    --accent-purple: #8b5cf6;
-    --text-primary: #f1f5f9;
-    --text-muted: #94a3b8;
-    --text-dim: #64748b;
-}
-
 html, body, [data-testid="stApp"] {
     font-family: 'DM Sans', sans-serif !important;
+    background-color: #0a0e17 !important;
 }
 
-/* ── Header strip ────────────────────────────── */
+/* ── Header ─────────────────────────────────── */
 .dash-header {
     background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
-    border: 1px solid var(--border);
+    border: 1px solid #1e293b;
     border-radius: 16px;
     padding: 28px 36px;
     margin-bottom: 24px;
@@ -61,184 +44,127 @@ html, body, [data-testid="stApp"] {
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 3px;
-    background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan), var(--accent-purple));
+    background: linear-gradient(90deg, #3b82f6, #06b6d4, #8b5cf6);
 }
 .dash-header h1 {
-    font-family: 'DM Sans', sans-serif;
-    font-size: 28px;
-    font-weight: 700;
-    color: #f8fafc;
-    margin: 0 0 4px 0;
-    letter-spacing: -0.5px;
+    font-size: 28px; font-weight: 700; color: #f8fafc;
+    margin: 0 0 4px 0; letter-spacing: -0.5px;
 }
 .dash-header p {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin: 0;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
+    font-size: 13px; color: #94a3b8; margin: 0;
+    letter-spacing: 0.5px; text-transform: uppercase;
 }
 
 /* ── Summary cards ───────────────────────────── */
 .summary-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
+    background: #111827;
+    border: 1px solid #1e293b;
     border-radius: 14px;
-    padding: 22px 24px;
-    text-align: left;
-    transition: all 0.2s ease;
-    position: relative;
-    overflow: hidden;
+    padding: 20px 22px;
+    margin-bottom: 8px;
 }
-.summary-card:hover { border-color: var(--accent-blue); }
 .summary-card .label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    color: var(--text-dim);
-    margin-bottom: 10px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1.2px; color: #64748b; margin-bottom: 8px;
 }
 .summary-card .value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 26px;
-    font-weight: 600;
-    color: var(--text-primary);
-    line-height: 1.1;
+    font-size: 24px; font-weight: 600; line-height: 1.1;
 }
-.summary-card .sub {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 6px;
-}
-.card-blue   .value { color: var(--accent-blue); }
-.card-green  .value { color: var(--accent-green); }
-.card-amber  .value { color: var(--accent-amber); }
-.card-red    .value { color: var(--accent-red); }
-.card-purple .value { color: var(--accent-purple); }
-.card-cyan   .value { color: var(--accent-cyan); }
+.summary-card .sub { font-size: 12px; color: #94a3b8; margin-top: 5px; }
+.c-blue   .value { color: #3b82f6; }
+.c-green  .value { color: #10b981; }
+.c-amber  .value { color: #f59e0b; }
+.c-red    .value { color: #ef4444; }
+.c-purple .value { color: #8b5cf6; }
+.c-cyan   .value { color: #06b6d4; }
 
 /* ── Instrument cards ────────────────────────── */
 .inst-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
+    background: #111827;
+    border: 1px solid #1e293b;
     border-radius: 14px;
-    padding: 20px;
-    transition: all 0.2s ease;
+    padding: 18px;
+    margin-bottom: 8px;
 }
-.inst-card:hover { transform: translateY(-2px); border-color: var(--accent-blue); box-shadow: 0 8px 24px rgba(59,130,246,0.08); }
-.inst-card .sym { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 16px; color: var(--text-primary); }
-.inst-card .dir-long  { color: var(--accent-green); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
-.inst-card .dir-short { color: var(--accent-red);   font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
-.inst-card .dir-flat  { color: var(--text-dim);     font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
-.inst-card .lots { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; margin: 8px 0; }
-.inst-card .expo { font-size: 12px; color: var(--text-muted); }
-.inst-card .bar-bg { background: #1e293b; border-radius: 6px; height: 8px; margin-top: 14px; overflow: hidden; }
-.inst-card .bar-fill { height: 100%; border-radius: 6px; transition: width 0.4s ease; }
-.inst-card .bar-label { font-size: 11px; color: var(--text-dim); margin-top: 6px; display: flex; justify-content: space-between; }
-
-/* ── Risk table ──────────────────────────────── */
-.risk-badge {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+.inst-card .sym {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 15px; color: #f1f5f9;
 }
-.badge-safe    { background: rgba(16,185,129,0.15); color: var(--accent-green); }
-.badge-warning { background: rgba(245,158,11,0.15); color: var(--accent-amber); }
-.badge-breach  { background: rgba(239,68,68,0.15);  color: var(--accent-red); }
+.dir-long  { color: #10b981; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.dir-short { color: #ef4444; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.dir-flat  { color: #64748b; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.lots-val  { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; margin: 6px 0; }
+.expo-row  { font-size: 12px; color: #94a3b8; margin: 2px 0; }
+.bar-bg    { background: #1e293b; border-radius: 6px; height: 8px; margin-top: 12px; overflow: hidden; }
+.bar-fill  { height: 100%; border-radius: 6px; }
+.bar-lbl   { font-size: 11px; color: #64748b; margin-top: 5px; display: flex; justify-content: space-between; }
+.badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.b-safe    { background: rgba(16,185,129,.15); color: #10b981; }
+.b-warn    { background: rgba(245,158,11,.15);  color: #f59e0b; }
+.b-breach  { background: rgba(239,68,68,.15);   color: #ef4444; }
 
-/* ── Section headers ─────────────────────────── */
-.section-header {
-    font-family: 'DM Sans', sans-serif;
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin: 32px 0 16px 0;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border);
-    letter-spacing: -0.3px;
+/* ── Section header ──────────────────────────── */
+.sec-hdr {
+    font-size: 17px; font-weight: 700; color: #f1f5f9;
+    margin: 28px 0 14px 0; padding-bottom: 10px;
+    border-bottom: 1px solid #1e293b;
 }
 
-/* ── Formula reference ───────────────────────── */
+/* ── Formula box ─────────────────────────────── */
 .formula-box {
     background: linear-gradient(135deg, #0f172a, #1e1b4b);
     border: 1px solid #2d2b55;
     border-radius: 12px;
-    padding: 20px 24px;
+    padding: 18px 22px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    line-height: 2;
-    color: #c4b5fd;
+    font-size: 12px; line-height: 2; color: #c4b5fd;
 }
-.formula-box span { color: var(--accent-cyan); }
+.formula-box span { color: #06b6d4; }
 
-/* ── Misc ────────────────────────────────────── */
-.stDataFrame { border-radius: 12px !important; }
-div[data-testid="stMetric"] { background: var(--bg-card); border-radius: 10px; padding: 14px; border: 1px solid var(--border); }
-div[data-testid="stMetric"] label { color: var(--text-dim) !important; text-transform: uppercase; font-size: 11px !important; letter-spacing: 1px; }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-family: 'JetBrains Mono', monospace !important; }
+/* ── Risk HTML table ─────────────────────────── */
+.risk-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px; color: #f1f5f9;
+    font-family: 'DM Sans', sans-serif;
+}
+.risk-table th {
+    background: #1e293b; color: #94a3b8;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 10px 12px; text-align: left; border: none;
+}
+.risk-table td {
+    padding: 9px 12px; border-bottom: 1px solid #1e293b;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.risk-table tr:hover td { background: #1a2235; }
+.row-breach td { background: rgba(239,68,68,.08); color: #fca5a5; }
+.row-warn   td { background: rgba(245,158,11,.06); color: #fcd34d; }
+.td-green { color: #10b981; font-weight: 600; }
+.td-red   { color: #ef4444; font-weight: 600; }
 
 /* ── Sidebar ─────────────────────────────────── */
 section[data-testid="stSidebar"] { background: #0f1629 !important; }
-section[data-testid="stSidebar"] .stMarkdown h2 { color: var(--text-primary); font-size: 15px; }
-
-/* ── Hide anchor links ───────────────────────── */
 a.anchor-link { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# INSTRUMENT CONFIG
+# CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
 INSTRUMENTS = {
-    "XAUUSD": {
-        "name": "Gold",
-        "contract_size": 100,
-        "yahoo": "GC=F",
-        "default_price": 4500.00,
-        "category": "Metals",
-    },
-    "XAGUSD": {
-        "name": "Silver",
-        "contract_size": 5000,
-        "yahoo": "SI=F",
-        "default_price": 68.00,
-        "category": "Metals",
-    },
-    "US30": {
-        "name": "DJ30",
-        "contract_size": 1,
-        "yahoo": "^DJI",
-        "default_price": 45577.00,
-        "category": "Indices",
-    },
-    "US100": {
-        "name": "NAS100",
-        "contract_size": 1,
-        "yahoo": "^NDX",
-        "default_price": 21648.00,
-        "category": "Indices",
-    },
-    "US500": {
-        "name": "S&P500",
-        "contract_size": 1,
-        "yahoo": "^GSPC",
-        "default_price": 6506.00,
-        "category": "Indices",
-    },
+    "XAUUSD": {"name": "Gold",   "contract_size": 100,   "yahoo": "GC=F",  "default_price": 4500.00, "category": "Metals"},
+    "XAGUSD": {"name": "Silver", "contract_size": 5000,  "yahoo": "SI=F",  "default_price": 68.00,   "category": "Metals"},
+    "US30":   {"name": "DJ30",   "contract_size": 1,     "yahoo": "^DJI",  "default_price": 45577.00,"category": "Indices"},
+    "US100":  {"name": "NAS100", "contract_size": 1,     "yahoo": "^NDX",  "default_price": 21648.00,"category": "Indices"},
+    "US500":  {"name": "S&P500", "contract_size": 1,     "yahoo": "^GSPC", "default_price": 6506.00, "category": "Indices"},
 }
 
-NOP_OPTIONS = {
-    "10M": 10_000_000,
-    "50M": 50_000_000,
-    "100M": 100_000_000,
-    "200M": 200_000_000,
-    "Custom": 0,
-}
+NOP_OPTIONS = {"10M": 10_000_000, "50M": 50_000_000, "100M": 100_000_000, "200M": 200_000_000, "Custom": 0}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SESSION STATE
@@ -255,13 +181,15 @@ if "rows" not in st.session_state:
         {"symbol": "US100",  "nop_preset": "100M", "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0},
         {"symbol": "US500",  "nop_preset": "100M", "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0},
     ]
-
+if "manual_rows" not in st.session_state:
+    st.session_state.manual_rows = [
+        {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0, "Price": 0.0},
+    ]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PRICE FETCHER
 # ══════════════════════════════════════════════════════════════════════════════
 def fetch_prices():
-    """Fetch live prices using yfinance. Returns dict of symbol->price."""
     fetched = {}
     try:
         import yfinance as yf
@@ -270,20 +198,15 @@ def fetch_prices():
         data = yf.download(tickers_str, period="1d", group_by="ticker", progress=False)
         for yahoo_sym, local_sym in yahoo_map.items():
             try:
-                if len(INSTRUMENTS) == 1:
-                    close = data["Close"].iloc[-1]
-                else:
-                    close = data[yahoo_sym]["Close"].iloc[-1]
+                close = data[yahoo_sym]["Close"].iloc[-1] if len(INSTRUMENTS) > 1 else data["Close"].iloc[-1]
                 if pd.notna(close) and close > 0:
                     fetched[local_sym] = round(float(close), 2)
             except Exception:
                 pass
-        # Fallback: individual fetch for missing symbols
         for sym, cfg in INSTRUMENTS.items():
             if sym not in fetched:
                 try:
-                    t = yf.Ticker(cfg["yahoo"])
-                    hist = t.history(period="5d")
+                    hist = yf.Ticker(cfg["yahoo"]).history(period="5d")
                     if not hist.empty:
                         fetched[sym] = round(float(hist["Close"].iloc[-1]), 2)
                 except Exception:
@@ -294,46 +217,172 @@ def fetch_prices():
 
 
 def get_price(symbol):
-    """Get price: live > override > default."""
-    cfg = INSTRUMENTS[symbol]
     if symbol in st.session_state.live_prices:
         return st.session_state.live_prices[symbol]
-    return cfg["default_price"]
+    return INSTRUMENTS[symbol]["default_price"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CALCULATION ENGINE
 # ══════════════════════════════════════════════════════════════════════════════
 def compute_row(symbol, open_lots, nop_limit_usd, price_override=0.0):
-    """Compute all risk metrics for a single instrument row."""
     cfg = INSTRUMENTS[symbol]
     price = price_override if price_override > 0 else get_price(symbol)
     cs = cfg["contract_size"]
     notional = price * cs
-    nop_max = notional and nop_limit_usd / notional or 0
+    nop_max = (nop_limit_usd / notional) if notional else 0
     exposure = abs(open_lots) * notional
     remaining = nop_max - abs(open_lots)
     pnl_per_1 = abs(open_lots) * cs
     utilization = (exposure / nop_limit_usd * 100) if nop_limit_usd > 0 else 0
-    margin_100 = notional / 100 if notional else 0  # leverage 100
+    margin_100 = notional / 100 if notional else 0
     direction = "NET LONG" if open_lots > 0 else ("NET SHORT" if open_lots < 0 else "FLAT")
     return {
-        "Symbol": symbol,
-        "Name": cfg["name"],
-        "Category": cfg["category"],
-        "Contract Size": cs,
-        "Price": price,
-        "Open Lots": open_lots,
-        "Direction": direction,
-        "Notional/Lot": notional,
-        "NOP Limit (USD)": nop_limit_usd,
-        "NOP Max Lots": round(nop_max, 2),
-        "Current Exposure": exposure,
-        "Remaining Lots": round(remaining, 2),
-        "PnL per $1": pnl_per_1,
-        "Utilization %": round(utilization, 2),
+        "Symbol": symbol, "Name": cfg["name"], "Category": cfg["category"],
+        "Contract Size": cs, "Price": price, "Open Lots": open_lots,
+        "Direction": direction, "Notional/Lot": notional,
+        "NOP Limit (USD)": nop_limit_usd, "NOP Max Lots": round(nop_max, 2),
+        "Current Exposure": exposure, "Remaining Lots": round(remaining, 2),
+        "PnL per $1": pnl_per_1, "Utilization %": round(utilization, 2),
         "Margin/Lot @100x": margin_100,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HTML TABLE RENDERER  (no pyarrow needed)
+# ══════════════════════════════════════════════════════════════════════════════
+def render_risk_table(results):
+    cols = ["Symbol", "Direction", "Price", "Contract Size", "Open Lots",
+            "Notional/Lot", "NOP Limit (USD)", "NOP Max Lots",
+            "Current Exposure", "Remaining Lots", "PnL per $1", "Utilization %"]
+    html = '<div style="overflow-x:auto;"><table class="risk-table"><thead><tr>'
+    for c in cols:
+        html += f'<th>{c}</th>'
+    html += '</tr></thead><tbody>'
+    for r in results:
+        rem = r["Remaining Lots"]
+        util = r["Utilization %"]
+        row_cls = "row-breach" if rem < 0 else ("row-warn" if util > 70 else "")
+        html += f'<tr class="{row_cls}">'
+        for c in cols:
+            v = r[c]
+            cell = ""
+            if c == "Direction":
+                dcls = "td-green" if "LONG" in v else ("td-red" if "SHORT" in v else "")
+                cell = f'<span class="{dcls}">{v}</span>'
+            elif c in ("Price", "Notional/Lot", "NOP Limit (USD)", "Current Exposure", "PnL per $1", "Margin/Lot @100x"):
+                cell = f"${v:,.2f}" if c == "Price" else f"${v:,.0f}"
+            elif c == "Open Lots":
+                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#64748b")
+                cell = f'<span style="color:{color}">{v:,.2f}</span>'
+            elif c == "Remaining Lots":
+                color = "#ef4444" if v < 0 else "#10b981"
+                cell = f'<span style="color:{color};font-weight:600">{v:,.2f}</span>'
+            elif c == "NOP Max Lots":
+                cell = f"{v:,.2f}"
+            elif c == "Utilization %":
+                color = "#ef4444" if v > 80 else ("#f59e0b" if v > 50 else "#10b981")
+                cell = f'<span style="color:{color}">{v:.1f}%</span>'
+            elif c == "Contract Size":
+                cell = f"{v:,}"
+            else:
+                cell = str(v)
+            html += f'<td>{cell}</td>'
+        html += '</tr>'
+    html += '</tbody></table></div>'
+    return html
+
+
+def render_scenario_table(scenario_rows):
+    html = '<div style="overflow-x:auto;"><table class="risk-table"><thead><tr>'
+    for c in ["Symbol", "Name", "Net Lots", "Contract Size", "Price Move", "PnL Impact ($)"]:
+        html += f'<th>{c}</th>'
+    html += '</tr></thead><tbody>'
+    for r in scenario_rows:
+        pnl = r["PnL Impact ($)"]
+        color = "#10b981" if pnl > 0 else ("#ef4444" if pnl < 0 else "#94a3b8")
+        html += f'''<tr>
+            <td>{r["Symbol"]}</td>
+            <td>{r["Name"]}</td>
+            <td>{r["Net Lots"]:,.2f}</td>
+            <td>{r["Contract Size"]:,}</td>
+            <td>${r["Price Move"]:,.2f}</td>
+            <td><span style="color:{color};font-weight:600">${pnl:,.0f}</span></td>
+        </tr>'''
+    html += '</tbody></table></div>'
+    return html
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PORTFOLIO SUMMARY CARDS
+# ══════════════════════════════════════════════════════════════════════════════
+def render_summary(results):
+    df = pd.DataFrame(results)
+    total_exposure = df["Current Exposure"].sum()
+    total_lots = df["Open Lots"].sum()
+    total_pnl1 = df["PnL per $1"].sum()
+    avg_util = df["Utilization %"].mean()
+    breach_count = int((df["Remaining Lots"] < 0).sum())
+    active_count = int((df["Open Lots"].abs() > 0).sum())
+
+    cards = [
+        ("TOTAL EXPOSURE",     f"${total_exposure:,.0f}",        f"{total_exposure/1e6:.1f}M USD",    "c-blue"),
+        ("NET OPEN LOTS",      f"{total_lots:,.2f}",             "Across all instruments",            "c-cyan"),
+        ("PnL PER $1 MOVE",    f"${total_pnl1:,.0f}",           "Portfolio sensitivity",             "c-purple"),
+        ("AVG UTILIZATION",    f"{avg_util:.1f}%",               "Of NOP limits",                     "c-amber" if avg_util > 40 else "c-green"),
+        ("RISK BREACHES",      str(breach_count),                "Remaining < 0",                     "c-red" if breach_count > 0 else "c-green"),
+        ("ACTIVE INSTRUMENTS", f"{active_count}/{len(results)}", "With open positions",               "c-cyan"),
+    ]
+    cols = st.columns(6)
+    for col, (label, value, sub, cls) in zip(cols, cards):
+        with col:
+            st.markdown(f"""
+            <div class="summary-card {cls}">
+                <div class="label">{label}</div>
+                <div class="value">{value}</div>
+                <div class="sub">{sub}</div>
+            </div>""", unsafe_allow_html=True)
+    return df
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INSTRUMENT BREAKDOWN CARDS
+# ══════════════════════════════════════════════════════════════════════════════
+def render_instrument_cards(results):
+    card_cols = st.columns(min(len(results), 5))
+    for idx, r in enumerate(results):
+        with card_cols[idx % len(card_cols)]:
+            direction = r["Direction"]
+            dir_cls = "dir-long" if "LONG" in direction else ("dir-short" if "SHORT" in direction else "dir-flat")
+            lots_color = "#10b981" if r["Open Lots"] > 0 else ("#ef4444" if r["Open Lots"] < 0 else "#64748b")
+            util = r["Utilization %"]
+            bar_color = "#ef4444" if util > 80 else ("#f59e0b" if util > 50 else "#10b981")
+            bar_width = min(util, 100)
+            status_cls = "b-breach" if r["Remaining Lots"] < 0 else ("b-warn" if util > 70 else "b-safe")
+            status_txt = "BREACH" if r["Remaining Lots"] < 0 else ("WARNING" if util > 70 else "SAFE")
+            rem_color = "#ef4444" if r["Remaining Lots"] < 0 else "#10b981"
+            st.markdown(f"""
+            <div class="inst-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span class="sym">{r['Symbol']}</span>
+                    <span class="badge {status_cls}">{status_txt}</span>
+                </div>
+                <div class="{dir_cls}" style="margin-top:5px;">{direction}</div>
+                <div class="lots-val" style="color:{lots_color};">{r['Open Lots']:,.2f}
+                    <span style="font-size:13px;color:#64748b;"> lots</span>
+                </div>
+                <div class="expo-row">Exposure: ${r['Current Exposure']:,.0f}</div>
+                <div class="expo-row">Notional/Lot: ${r['Notional/Lot']:,.0f}</div>
+                <div class="expo-row">PnL per $1: ${r['PnL per $1']:,.0f}</div>
+                <div class="bar-bg"><div class="bar-fill" style="width:{bar_width}%;background:{bar_color};"></div></div>
+                <div class="bar-lbl">
+                    <span>Util: {util:.1f}%</span>
+                    <span>Max: {r['NOP Max Lots']:,.1f} lots</span>
+                </div>
+                <div class="expo-row" style="margin-top:5px;">
+                    Remaining: <b style="color:{rem_color}">{r['Remaining Lots']:,.2f}</b> lots
+                </div>
+            </div>""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -341,19 +390,16 @@ def compute_row(symbol, open_lots, nop_limit_usd, price_override=0.0):
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <div class="dash-header">
-    <h1>🛡️ Broker NOP Risk Dashboard</h1>
+    <h1>📊 NOP Calculator</h1>
     <p>Net Open Position &nbsp;·&nbsp; Notional Exposure &nbsp;·&nbsp; Capacity Monitor &nbsp;·&nbsp; Dealing Desk RMS</p>
 </div>
 """, unsafe_allow_html=True)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("## ⚙️ Controls")
-
-    # Fetch button
     if st.button("🔄 Fetch Live Prices", use_container_width=True, type="primary"):
         with st.spinner("Connecting to markets…"):
             prices = fetch_prices()
@@ -363,11 +409,9 @@ with st.sidebar:
                 st.success(f"Fetched {len(prices)} prices")
             else:
                 st.warning("API unavailable — using defaults / manual")
-
     if st.session_state.fetch_ts:
         st.caption(f"Last fetch: {st.session_state.fetch_ts}")
 
-    # Show current prices
     st.markdown("---")
     st.markdown("### 💹 Current Prices")
     for sym, cfg in INSTRUMENTS.items():
@@ -394,316 +438,254 @@ with st.sidebar:
         st.markdown(f"`{sym}` → **{cfg['contract_size']:,}** {unit}")
 
     st.markdown("---")
-    st.caption("v2.0 · Streamlit Cloud Ready")
+    st.caption("NOP Calculator v3.0 · Streamlit Cloud Ready")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# POSITION INPUT
+# TABS
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-header">📝 Position & Limit Inputs</div>', unsafe_allow_html=True)
-st.caption("Configure each instrument: select symbol, set NOP limit, enter net open lots (positive = long, negative = short). Override price if needed.")
+tab1, tab2 = st.tabs(["📊 NOP Calculator", "✏️ Manual Entry"])
 
-# Row management
-col_add, col_remove, _ = st.columns([1, 1, 4])
-with col_add:
-    if st.button("➕ Add Row", use_container_width=True):
-        st.session_state.rows.append({
-            "symbol": "XAUUSD", "nop_preset": "100M",
-            "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0,
-        })
-        st.rerun()
-with col_remove:
-    if len(st.session_state.rows) > 1:
-        if st.button("➖ Remove Last", use_container_width=True):
-            st.session_state.rows.pop()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 1 — NOP CALCULATOR
+# ─────────────────────────────────────────────────────────────────────────────
+with tab1:
+    st.markdown('<div class="sec-hdr">📝 Position & Limit Inputs</div>', unsafe_allow_html=True)
+    st.caption("Select symbol, set NOP limit, enter net open lots (+ve = Long, −ve = Short). Override price if needed.")
+
+    col_add, col_rem, _ = st.columns([1, 1, 4])
+    with col_add:
+        if st.button("➕ Add Row", use_container_width=True):
+            st.session_state.rows.append({
+                "symbol": "XAUUSD", "nop_preset": "100M",
+                "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0,
+            })
             st.rerun()
+    with col_rem:
+        if len(st.session_state.rows) > 1:
+            if st.button("➖ Remove Last", use_container_width=True):
+                st.session_state.rows.pop()
+                st.rerun()
 
-symbol_options = list(INSTRUMENTS.keys())
-nop_labels = list(NOP_OPTIONS.keys())
+    symbol_options = list(INSTRUMENTS.keys())
+    nop_labels = list(NOP_OPTIONS.keys())
+    results = []
 
-results = []
+    for i, row in enumerate(st.session_state.rows):
+        with st.container():
+            c1, c2, c3, c4, c5 = st.columns([1.2, 1.2, 1.2, 1, 1.2])
+            with c1:
+                sym = st.selectbox("Symbol", symbol_options,
+                    index=symbol_options.index(row["symbol"]) if row["symbol"] in symbol_options else 0,
+                    key=f"sym_{i}")
+                st.session_state.rows[i]["symbol"] = sym
+            with c2:
+                nop_choice = st.selectbox("NOP Limit", nop_labels,
+                    index=nop_labels.index(row.get("nop_preset", "100M")),
+                    key=f"nop_{i}")
+                st.session_state.rows[i]["nop_preset"] = nop_choice
+                if nop_choice == "Custom":
+                    nop_usd = st.number_input("Custom (USD)",
+                        value=int(row.get("nop_custom", 100_000_000)),
+                        min_value=0, step=1_000_000, key=f"nop_c_{i}")
+                    st.session_state.rows[i]["nop_custom"] = nop_usd
+                else:
+                    nop_usd = NOP_OPTIONS[nop_choice]
+                    st.session_state.rows[i]["nop_custom"] = nop_usd
+            with c3:
+                lots = st.number_input("Open Lots (net)", value=row.get("open_lots", 0.0),
+                    step=0.01, format="%.2f", key=f"lots_{i}", help="+ve = Long, −ve = Short")
+                st.session_state.rows[i]["open_lots"] = lots
+            with c4:
+                cs = INSTRUMENTS[sym]["contract_size"]
+                st.text_input("Contract Size", value=f"{cs:,}", disabled=True, key=f"cs_{i}")
+            with c5:
+                p_over = st.number_input("Price Override", value=row.get("price_override", 0.0),
+                    min_value=0.0, step=0.01, format="%.2f", key=f"po_{i}",
+                    help="0 = use live/default price")
+                st.session_state.rows[i]["price_override"] = p_over
 
-for i, row in enumerate(st.session_state.rows):
-    with st.container():
-        c1, c2, c3, c4, c5 = st.columns([1.2, 1.2, 1.2, 1, 1.2])
-        with c1:
-            sym = st.selectbox(
-                "Symbol", symbol_options,
-                index=symbol_options.index(row["symbol"]) if row["symbol"] in symbol_options else 0,
-                key=f"sym_{i}",
+            results.append(compute_row(sym, lots, nop_usd, p_over))
+
+        if i < len(st.session_state.rows) - 1:
+            st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:6px 0;'>",
+                        unsafe_allow_html=True)
+
+    # ── Portfolio Summary ──
+    st.markdown('<div class="sec-hdr">📊 Portfolio Summary</div>', unsafe_allow_html=True)
+    df = render_summary(results)
+
+    # ── Instrument Cards ──
+    st.markdown('<div class="sec-hdr">🔍 Instrument Breakdown</div>', unsafe_allow_html=True)
+    render_instrument_cards(results)
+
+    # ── Full Risk Table ──
+    st.markdown('<div class="sec-hdr">📋 Full Risk Calculation Table</div>', unsafe_allow_html=True)
+    st.markdown(render_risk_table(results), unsafe_allow_html=True)
+
+    # ── Scenario Analysis ──
+    st.markdown('<div class="sec-hdr">⚡ PnL Scenario Analysis</div>', unsafe_allow_html=True)
+    st.caption("Estimated PnL if the market moves by the amounts below.")
+    sc1, sc2, sc3 = st.columns(3)
+    with sc1:
+        move_gold = st.number_input("Gold move ($)", value=10.0, step=1.0, key="mv_g")
+    with sc2:
+        move_silver = st.number_input("Silver move ($)", value=1.0, step=0.10, key="mv_s")
+    with sc3:
+        move_index = st.number_input("Index move (pts)", value=100.0, step=10.0, key="mv_i")
+
+    scenario_rows = []
+    for r in results:
+        mv = move_gold if r["Symbol"] == "XAUUSD" else (move_silver if r["Symbol"] == "XAGUSD" else move_index)
+        pnl = r["Open Lots"] * r["Contract Size"] * mv
+        scenario_rows.append({
+            "Symbol": r["Symbol"], "Name": r["Name"],
+            "Net Lots": r["Open Lots"], "Contract Size": r["Contract Size"],
+            "Price Move": mv, "PnL Impact ($)": pnl,
+        })
+
+    st.markdown(render_scenario_table(scenario_rows), unsafe_allow_html=True)
+    total_pnl_sc = sum(r["PnL Impact ($)"] for r in scenario_rows)
+    pnl_color = "#10b981" if total_pnl_sc >= 0 else "#ef4444"
+    st.markdown(f"""
+    <div class="summary-card" style="max-width:340px;margin-top:14px;">
+        <div class="label">TOTAL PORTFOLIO PnL IMPACT</div>
+        <div class="value" style="color:{pnl_color};font-size:30px;">${total_pnl_sc:,.0f}</div>
+    </div>""", unsafe_allow_html=True)
+
+    # ── Export ──
+    st.markdown('<div class="sec-hdr">📥 Export</div>', unsafe_allow_html=True)
+    export_df = df[[
+        "Symbol", "Name", "Contract Size", "Price", "Open Lots", "Direction",
+        "NOP Limit (USD)", "Notional/Lot", "NOP Max Lots", "Current Exposure",
+        "Remaining Lots", "PnL per $1", "Utilization %", "Margin/Lot @100x",
+    ]].copy()
+
+    try:
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            export_df.to_excel(writer, sheet_name="NOP Risk Report", index=False)
+            pd.DataFrame(scenario_rows).to_excel(writer, sheet_name="Scenario Analysis", index=False)
+        buffer.seek(0)
+        ex1, ex2, _ = st.columns([1, 1, 3])
+        with ex1:
+            st.download_button("📥 Download Excel (.xlsx)", data=buffer,
+                file_name=f"NOP_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True)
+        with ex2:
+            st.download_button("📄 Download CSV", data=export_df.to_csv(index=False),
+                file_name=f"NOP_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv", use_container_width=True)
+    except Exception:
+        st.download_button("📄 Download CSV", data=export_df.to_csv(index=False),
+            file_name=f"NOP_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 2 — MANUAL ENTRY
+# ─────────────────────────────────────────────────────────────────────────────
+with tab2:
+    st.markdown('<div class="sec-hdr">✏️ Manual Position Entry</div>', unsafe_allow_html=True)
+    st.caption("Add rows manually. All fields are editable. Price = 0 uses the live/default price.")
+
+    # ── Row management buttons ──
+    ma1, ma2, _ = st.columns([1, 1, 4])
+    with ma1:
+        if st.button("➕ Add Row", use_container_width=True, key="m_add"):
+            st.session_state.manual_rows.append(
+                {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0, "Price": 0.0}
             )
-            st.session_state.rows[i]["symbol"] = sym
-        with c2:
-            nop_choice = st.selectbox(
-                "NOP Limit", nop_labels,
-                index=nop_labels.index(row.get("nop_preset", "100M")),
-                key=f"nop_{i}",
-            )
-            st.session_state.rows[i]["nop_preset"] = nop_choice
-            if nop_choice == "Custom":
-                nop_usd = st.number_input(
-                    "Custom (USD)", value=int(row.get("nop_custom", 100_000_000)),
-                    min_value=0, step=1_000_000, key=f"nop_c_{i}",
-                )
-                st.session_state.rows[i]["nop_custom"] = nop_usd
-            else:
-                nop_usd = NOP_OPTIONS[nop_choice]
-                st.session_state.rows[i]["nop_custom"] = nop_usd
-        with c3:
-            lots = st.number_input(
-                "Open Lots (net)", value=row.get("open_lots", 0.0),
-                step=0.01, format="%.2f", key=f"lots_{i}",
-                help="+ve = Long, -ve = Short",
-            )
-            st.session_state.rows[i]["open_lots"] = lots
-        with c4:
-            cs = INSTRUMENTS[sym]["contract_size"]
-            st.text_input("Contract Size", value=f"{cs:,}", disabled=True, key=f"cs_{i}")
-        with c5:
-            p_over = st.number_input(
-                "Price Override", value=row.get("price_override", 0.0),
-                min_value=0.0, step=0.01, format="%.2f", key=f"po_{i}",
-                help="0 = use live/default price",
-            )
-            st.session_state.rows[i]["price_override"] = p_over
+            st.rerun()
+    with ma2:
+        if len(st.session_state.manual_rows) > 1:
+            if st.button("➖ Remove Last", use_container_width=True, key="m_rem"):
+                st.session_state.manual_rows.pop()
+                st.rerun()
 
-        results.append(compute_row(sym, lots, nop_usd, p_over))
+    # ── Per-row manual input ──
+    manual_results = []
+    sym_opts = list(INSTRUMENTS.keys())
 
-    if i < len(st.session_state.rows) - 1:
-        st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:8px 0;'>", unsafe_allow_html=True)
+    for i, mrow in enumerate(st.session_state.manual_rows):
+        with st.container():
+            m1, m2, m3, m4, m5 = st.columns([1.2, 1.5, 1.2, 1.2, 1])
+            with m1:
+                msym = st.selectbox("Symbol", sym_opts,
+                    index=sym_opts.index(mrow["Symbol"]) if mrow["Symbol"] in sym_opts else 0,
+                    key=f"msym_{i}")
+                st.session_state.manual_rows[i]["Symbol"] = msym
+            with m2:
+                mnop = st.number_input("NOP Limit (USD)", value=int(mrow["NOP Limit (USD)"]),
+                    min_value=0, step=1_000_000, key=f"mnop_{i}")
+                st.session_state.manual_rows[i]["NOP Limit (USD)"] = mnop
+            with m3:
+                mlots = st.number_input("Open Lots", value=float(mrow["Open Lots"]),
+                    step=0.01, format="%.2f", key=f"mlots_{i}",
+                    help="+ve = Long, −ve = Short")
+                st.session_state.manual_rows[i]["Open Lots"] = mlots
+            with m4:
+                mprice = st.number_input("Price (0 = auto)", value=float(mrow["Price"]),
+                    min_value=0.0, step=0.01, format="%.2f", key=f"mprice_{i}")
+                st.session_state.manual_rows[i]["Price"] = mprice
+            with m5:
+                mcs = INSTRUMENTS[msym]["contract_size"]
+                st.text_input("Contract Size", value=f"{mcs:,}", disabled=True, key=f"mcs_{i}")
 
+            manual_results.append(compute_row(msym, mlots, mnop, mprice))
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PORTFOLIO SUMMARY
-# ══════════════════════════════════════════════════════════════════════════════
-df = pd.DataFrame(results)
+        if i < len(st.session_state.manual_rows) - 1:
+            st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:6px 0;'>",
+                        unsafe_allow_html=True)
 
-total_exposure = df["Current Exposure"].sum()
-total_lots = df["Open Lots"].sum()
-total_pnl1 = df["PnL per $1"].sum()
-avg_util = df["Utilization %"].mean()
-breach_count = (df["Remaining Lots"] < 0).sum()
-active_count = (df["Open Lots"].abs() > 0).sum()
+    # ── Manual Results ──
+    if manual_results:
+        st.markdown('<div class="sec-hdr">📊 Manual Entry Summary</div>', unsafe_allow_html=True)
+        render_summary(manual_results)
 
-st.markdown('<div class="section-header">📊 Portfolio Summary</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-hdr">🔍 Instrument Breakdown</div>', unsafe_allow_html=True)
+        render_instrument_cards(manual_results)
 
-cols = st.columns(6)
-cards = [
-    ("TOTAL EXPOSURE",     f"${total_exposure:,.0f}",           f"{total_exposure/1e6:.1f}M USD",   "card-blue"),
-    ("NET OPEN LOTS",      f"{total_lots:,.2f}",                "Across all instruments",           "card-cyan"),
-    ("PnL PER $1 MOVE",    f"${total_pnl1:,.0f}",              "Portfolio sensitivity",            "card-purple"),
-    ("AVG UTILIZATION",    f"{avg_util:.1f}%",                  "Of NOP limits",                    "card-amber" if avg_util > 40 else "card-green"),
-    ("RISK BREACHES",      f"{breach_count}",                   "Remaining < 0",                    "card-red" if breach_count > 0 else "card-green"),
-    ("ACTIVE INSTRUMENTS", f"{active_count}/{len(results)}",    "With open positions",              "card-cyan"),
-]
+        st.markdown('<div class="sec-hdr">📋 Risk Calculation Table</div>', unsafe_allow_html=True)
+        st.markdown(render_risk_table(manual_results), unsafe_allow_html=True)
 
-for col, (label, value, sub, cls) in zip(cols, cards):
-    with col:
-        st.markdown(f"""
-        <div class="summary-card {cls}">
-            <div class="label">{label}</div>
-            <div class="value">{value}</div>
-            <div class="sub">{sub}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        # ── Manual Export ──
+        st.markdown('<div class="sec-hdr">📥 Export</div>', unsafe_allow_html=True)
+        mdf = pd.DataFrame(manual_results)[[
+            "Symbol", "Name", "Contract Size", "Price", "Open Lots", "Direction",
+            "NOP Limit (USD)", "Notional/Lot", "NOP Max Lots", "Current Exposure",
+            "Remaining Lots", "PnL per $1", "Utilization %",
+        ]]
+        try:
+            mbuf = io.BytesIO()
+            with pd.ExcelWriter(mbuf, engine="openpyxl") as writer:
+                mdf.to_excel(writer, sheet_name="Manual NOP Entry", index=False)
+            mbuf.seek(0)
+            me1, me2, _ = st.columns([1, 1, 3])
+            with me1:
+                st.download_button("📥 Download Excel", data=mbuf,
+                    file_name=f"Manual_NOP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True)
+            with me2:
+                st.download_button("📄 Download CSV", data=mdf.to_csv(index=False),
+                    file_name=f"Manual_NOP_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv", use_container_width=True)
+        except Exception:
+            st.download_button("📄 Download CSV", data=mdf.to_csv(index=False),
+                file_name=f"Manual_NOP_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv")
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INSTRUMENT DETAIL CARDS
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-header">🔍 Instrument Breakdown</div>', unsafe_allow_html=True)
-
-card_cols = st.columns(min(len(results), 5))
-for idx, row_data in enumerate(results):
-    col = card_cols[idx % len(card_cols)]
-    with col:
-        direction = row_data["Direction"]
-        dir_class = "dir-long" if "LONG" in direction else ("dir-short" if "SHORT" in direction else "dir-flat")
-        lots_color = "#10b981" if row_data["Open Lots"] > 0 else ("#ef4444" if row_data["Open Lots"] < 0 else "#64748b")
-
-        util = row_data["Utilization %"]
-        bar_color = "#ef4444" if util > 80 else ("#f59e0b" if util > 50 else "#10b981")
-        bar_width = min(util, 100)
-
-        status_class = "badge-breach" if row_data["Remaining Lots"] < 0 else ("badge-warning" if util > 70 else "badge-safe")
-        status_text = "BREACH" if row_data["Remaining Lots"] < 0 else ("WARNING" if util > 70 else "SAFE")
-
-        st.markdown(f"""
-        <div class="inst-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span class="sym">{row_data['Symbol']}</span>
-                <span class="risk-badge {status_class}">{status_text}</span>
-            </div>
-            <div class="{dir_class}" style="margin-top:6px;">{direction}</div>
-            <div class="lots" style="color:{lots_color};">{row_data['Open Lots']:,.2f} <span style="font-size:14px;color:#64748b;">lots</span></div>
-            <div class="expo">Exposure: ${row_data['Current Exposure']:,.0f}</div>
-            <div class="expo">Notional/Lot: ${row_data['Notional/Lot']:,.0f}</div>
-            <div class="expo">PnL per $1: ${row_data['PnL per $1']:,.0f}</div>
-            <div class="bar-bg"><div class="bar-fill" style="width:{bar_width}%;background:{bar_color};"></div></div>
-            <div class="bar-label">
-                <span>Util: {util:.1f}%</span>
-                <span>Max: {row_data['NOP Max Lots']:,.1f} lots</span>
-            </div>
-            <div class="expo" style="margin-top:6px;">Remaining: <b style="color:{'#ef4444' if row_data['Remaining Lots']<0 else '#10b981'}">{row_data['Remaining Lots']:,.2f}</b> lots</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FULL RESULTS TABLE
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-header">📋 Full Risk Calculation Table</div>', unsafe_allow_html=True)
-
-display_df = df[[
-    "Symbol", "Name", "Direction", "Price", "Contract Size", "Open Lots",
-    "Notional/Lot", "NOP Limit (USD)", "NOP Max Lots", "Current Exposure",
-    "Remaining Lots", "PnL per $1", "Utilization %", "Margin/Lot @100x",
-]].copy()
-
-
-def highlight_risk(row):
-    """Apply conditional formatting to risk table rows."""
-    styles = [""] * len(row)
-    if row["Remaining Lots"] < 0:
-        styles = ["background-color: rgba(239,68,68,0.12); color: #fca5a5;"] * len(row)
-    elif row["Utilization %"] > 70:
-        styles = ["background-color: rgba(245,158,11,0.08); color: #fcd34d;"] * len(row)
-    return styles
-
-
-styled = display_df.style.apply(highlight_risk, axis=1).format({
-    "Price": "${:,.2f}",
-    "Contract Size": "{:,}",
-    "Open Lots": "{:,.2f}",
-    "Notional/Lot": "${:,.0f}",
-    "NOP Limit (USD)": "${:,.0f}",
-    "NOP Max Lots": "{:,.2f}",
-    "Current Exposure": "${:,.0f}",
-    "Remaining Lots": "{:,.2f}",
-    "PnL per $1": "${:,.0f}",
-    "Utilization %": "{:.1f}%",
-    "Margin/Lot @100x": "${:,.2f}",
-})
-
-st.dataframe(styled, use_container_width=True, hide_index=True, height=280)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SCENARIO ANALYSIS
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-header">⚡ PnL Scenario Analysis</div>', unsafe_allow_html=True)
-st.caption("What happens if the market moves?")
-
-sc1, sc2, sc3 = st.columns(3)
-with sc1:
-    move_gold = st.number_input("Gold move ($)", value=10.0, step=1.0, key="mv_g")
-with sc2:
-    move_silver = st.number_input("Silver move ($)", value=1.0, step=0.10, key="mv_s")
-with sc3:
-    move_index = st.number_input("Index move (pts)", value=100.0, step=10.0, key="mv_i")
-
-scenario_rows = []
-for r in results:
-    cat = INSTRUMENTS[r["Symbol"]]["category"]
-    if r["Symbol"] == "XAUUSD":
-        mv = move_gold
-    elif r["Symbol"] == "XAGUSD":
-        mv = move_silver
-    else:
-        mv = move_index
-    pnl = r["Open Lots"] * r["Contract Size"] * mv
-    scenario_rows.append({
-        "Symbol": r["Symbol"],
-        "Name": r["Name"],
-        "Net Lots": r["Open Lots"],
-        "Contract Size": r["Contract Size"],
-        "Price Move": mv,
-        "PnL Impact ($)": pnl,
-    })
-
-sc_df = pd.DataFrame(scenario_rows)
-st.dataframe(
-    sc_df.style.format({
-        "Net Lots": "{:,.2f}",
-        "Contract Size": "{:,}",
-        "Price Move": "${:,.2f}",
-        "PnL Impact ($)": "${:,.0f}",
-    }).applymap(
-        lambda v: "color: #10b981; font-weight: 600" if isinstance(v, (int, float)) and v > 0 else
-                  ("color: #ef4444; font-weight: 600" if isinstance(v, (int, float)) and v < 0 else ""),
-        subset=["PnL Impact ($)"],
-    ),
-    use_container_width=True, hide_index=True,
-)
-
-total_pnl_sc = sc_df["PnL Impact ($)"].sum()
-pnl_color = "#10b981" if total_pnl_sc >= 0 else "#ef4444"
-st.markdown(f"""
-<div class="summary-card" style="max-width:360px;margin-top:12px;">
-    <div class="label">TOTAL PORTFOLIO PnL IMPACT</div>
-    <div class="value" style="color:{pnl_color};font-size:32px;">${total_pnl_sc:,.0f}</div>
-</div>
-""", unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# EXCEL EXPORT
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-header">📥 Export</div>', unsafe_allow_html=True)
-
-export_df = df[[
-    "Symbol", "Name", "Contract Size", "Price", "Open Lots", "Direction",
-    "NOP Limit (USD)", "Notional/Lot", "NOP Max Lots", "Current Exposure",
-    "Remaining Lots", "PnL per $1", "Utilization %", "Margin/Lot @100x",
-]].copy()
-
-# Excel export
-try:
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        export_df.to_excel(writer, sheet_name="NOP Risk Report", index=False)
-        sc_df.to_excel(writer, sheet_name="Scenario Analysis", index=False)
-    buffer.seek(0)
-
-    exp1, exp2, _ = st.columns([1, 1, 3])
-    with exp1:
-        st.download_button(
-            "📥 Download Excel (.xlsx)",
-            data=buffer,
-            file_name=f"NOP_Risk_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    with exp2:
-        csv_data = export_df.to_csv(index=False)
-        st.download_button(
-            "📄 Download CSV",
-            data=csv_data,
-            file_name=f"NOP_Risk_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-except Exception:
-    csv_data = export_df.to_csv(index=False)
-    st.download_button(
-        "📄 Download CSV",
-        data=csv_data,
-        file_name=f"NOP_Risk_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-        mime="text/csv",
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FOOTER
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Footer ───────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
-<div style="text-align:center;padding:16px 0;">
+<div style="text-align:center;padding:14px 0;">
     <span style="color:#64748b;font-size:12px;">
-    Broker NOP Risk Dashboard v2.0 &nbsp;·&nbsp;
+    NOP Calculator v3.0 &nbsp;·&nbsp;
     Notional = Price × Contract Size &nbsp;·&nbsp;
     NOP Max = Limit ÷ Notional &nbsp;·&nbsp;
-    Remaining = Max − |Open Lots| &nbsp;·&nbsp;
     Built for dealing desks
     </span>
 </div>
