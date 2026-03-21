@@ -1,7 +1,7 @@
 """
-NOP Calculator — v3.0
+NOP Calculator — v3.1
 Real-time Net Open Position monitoring for dealing desks.
-Tracks metals (Gold, Silver) and indices (DJ30, NAS100, S&P500).
+Tracks metals (Gold, Silver) and indices (DJ30, NAS100, S&P500) + custom symbols.
 
 Deploy: streamlit run app.py
 """
@@ -107,6 +107,17 @@ html, body, [data-testid="stApp"] {
 .b-warn    { background: rgba(245,158,11,.15);  color: #f59e0b; }
 .b-breach  { background: rgba(239,68,68,.15);   color: #ef4444; }
 
+/* ── Custom symbol pill ──────────────────────── */
+.custom-tag {
+    display: inline-block;
+    background: rgba(139,92,246,.15);
+    color: #a78bfa;
+    font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px;
+    letter-spacing: 0.5px; text-transform: uppercase;
+    margin-left: 6px;
+}
+
 /* ── Section header ──────────────────────────── */
 .sec-hdr {
     font-size: 17px; font-weight: 700; color: #f1f5f9;
@@ -165,50 +176,71 @@ INSTRUMENTS = {
 }
 
 NOP_OPTIONS = {"10M": 10_000_000, "50M": 50_000_000, "100M": 100_000_000, "200M": 200_000_000, "Custom": 0}
+CATEGORIES  = ["Metals", "Indices", "Forex", "Crypto", "Energy", "Other"]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SESSION STATE
 # ══════════════════════════════════════════════════════════════════════════════
+def _default_row(symbol="XAUUSD", nop_preset="100M", nop_custom=100_000_000):
+    cfg = INSTRUMENTS.get(symbol, {})
+    return {
+        "symbol":            symbol,
+        "nop_preset":        nop_preset,
+        "nop_custom":        nop_custom,
+        "open_lots":         0.0,
+        "price_override":    0.0,
+        "contract_size":     cfg.get("contract_size", 1),   # editable
+        # Custom symbol fields
+        "custom_name":       "",
+        "custom_ticker":     "",
+        "custom_category":   "Metals",
+    }
+
 if "live_prices" not in st.session_state:
     st.session_state.live_prices = {}
 if "fetch_ts" not in st.session_state:
     st.session_state.fetch_ts = None
 if "rows" not in st.session_state:
     st.session_state.rows = [
-        {"symbol": "XAUUSD", "nop_preset": "100M", "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0},
-        {"symbol": "XAGUSD", "nop_preset": "10M",  "nop_custom": 10_000_000,  "open_lots": 0.0, "price_override": 0.0},
-        {"symbol": "US30",   "nop_preset": "100M", "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0},
-        {"symbol": "US100",  "nop_preset": "100M", "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0},
-        {"symbol": "US500",  "nop_preset": "100M", "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0},
+        _default_row("XAUUSD", "100M", 100_000_000),
+        _default_row("XAGUSD", "10M",  10_000_000),
+        _default_row("US30",   "100M", 100_000_000),
+        _default_row("US100",  "100M", 100_000_000),
+        _default_row("US500",  "100M", 100_000_000),
     ]
 if "manual_rows" not in st.session_state:
     st.session_state.manual_rows = [
-        {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0, "Price": 0.0},
+        {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0,
+         "Price": 0.0, "Contract Size": 100, "custom_name": "", "custom_ticker": "", "custom_category": "Metals"},
     ]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PRICE FETCHER
 # ══════════════════════════════════════════════════════════════════════════════
-def fetch_prices():
+def fetch_prices(extra_tickers=None):
+    """Fetch live prices via yfinance. extra_tickers = {local_sym: yahoo_ticker}"""
     fetched = {}
     try:
         import yfinance as yf
-        yahoo_map = {v["yahoo"]: k for k, v in INSTRUMENTS.items()}
-        tickers_str = " ".join(v["yahoo"] for v in INSTRUMENTS.values())
-        data = yf.download(tickers_str, period="1d", group_by="ticker", progress=False)
-        for yahoo_sym, local_sym in yahoo_map.items():
+        # Build full ticker map: built-ins + custom
+        ticker_map = {v["yahoo"]: k for k, v in INSTRUMENTS.items()}
+        if extra_tickers:
+            ticker_map.update({v: k for k, v in extra_tickers.items() if v})
+
+        tickers_str = " ".join(ticker_map.keys())
+        data = yf.download(tickers_str, period="2d", group_by="ticker", progress=False, auto_adjust=True)
+
+        for yahoo_sym, local_sym in ticker_map.items():
             try:
-                close = data[yahoo_sym]["Close"].iloc[-1] if len(INSTRUMENTS) > 1 else data["Close"].iloc[-1]
-                if pd.notna(close) and close > 0:
+                col = data[yahoo_sym]["Close"] if len(ticker_map) > 1 else data["Close"]
+                close = col.dropna().iloc[-1]
+                if close > 0:
                     fetched[local_sym] = round(float(close), 2)
             except Exception:
-                pass
-        for sym, cfg in INSTRUMENTS.items():
-            if sym not in fetched:
                 try:
-                    hist = yf.Ticker(cfg["yahoo"]).history(period="5d")
+                    hist = yf.Ticker(yahoo_sym).history(period="5d")
                     if not hist.empty:
-                        fetched[sym] = round(float(hist["Close"].iloc[-1]), 2)
+                        fetched[local_sym] = round(float(hist["Close"].iloc[-1]), 2)
                 except Exception:
                     pass
     except ImportError:
@@ -216,29 +248,44 @@ def fetch_prices():
     return fetched
 
 
-def get_price(symbol):
+def get_price(symbol, custom_ticker=""):
     if symbol in st.session_state.live_prices:
         return st.session_state.live_prices[symbol]
+    if symbol == "Custom":
+        return 0.0
     return INSTRUMENTS[symbol]["default_price"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CALCULATION ENGINE
 # ══════════════════════════════════════════════════════════════════════════════
-def compute_row(symbol, open_lots, nop_limit_usd, price_override=0.0):
-    cfg = INSTRUMENTS[symbol]
-    price = price_override if price_override > 0 else get_price(symbol)
-    cs = cfg["contract_size"]
-    notional = price * cs
-    nop_max = (nop_limit_usd / notional) if notional else 0
-    exposure = abs(open_lots) * notional
-    remaining = nop_max - abs(open_lots)
-    pnl_per_1 = abs(open_lots) * cs
+def compute_row(symbol, open_lots, nop_limit_usd, price_override=0.0,
+                contract_size=None, custom_name="", custom_category="Metals", custom_ticker=""):
+    """Compute all risk metrics. contract_size overrides instrument default when provided."""
+    if symbol == "Custom":
+        name     = custom_name or "Custom"
+        category = custom_category
+        default_cs = 1
+        price = price_override if price_override > 0 else get_price(symbol, custom_ticker)
+    else:
+        cfg      = INSTRUMENTS[symbol]
+        name     = cfg["name"]
+        category = cfg["category"]
+        default_cs = cfg["contract_size"]
+        price = price_override if price_override > 0 else get_price(symbol)
+
+    cs = contract_size if (contract_size is not None and contract_size > 0) else default_cs
+    notional   = price * cs
+    nop_max    = (nop_limit_usd / notional) if notional else 0
+    exposure   = abs(open_lots) * notional
+    remaining  = nop_max - abs(open_lots)
+    pnl_per_1  = abs(open_lots) * cs
     utilization = (exposure / nop_limit_usd * 100) if nop_limit_usd > 0 else 0
     margin_100 = notional / 100 if notional else 0
-    direction = "NET LONG" if open_lots > 0 else ("NET SHORT" if open_lots < 0 else "FLAT")
+    direction  = "NET LONG" if open_lots > 0 else ("NET SHORT" if open_lots < 0 else "FLAT")
     return {
-        "Symbol": symbol, "Name": cfg["name"], "Category": cfg["category"],
+        "Symbol": symbol if symbol != "Custom" else (custom_name or "Custom"),
+        "Name": name, "Category": category,
         "Contract Size": cs, "Price": price, "Open Lots": open_lots,
         "Direction": direction, "Notional/Lot": notional,
         "NOP Limit (USD)": nop_limit_usd, "NOP Max Lots": round(nop_max, 2),
@@ -249,7 +296,7 @@ def compute_row(symbol, open_lots, nop_limit_usd, price_override=0.0):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HTML TABLE RENDERER  (no pyarrow needed)
+# HTML TABLE RENDERERS
 # ══════════════════════════════════════════════════════════════════════════════
 def render_risk_table(results):
     cols = ["Symbol", "Direction", "Price", "Contract Size", "Open Lots",
@@ -260,18 +307,19 @@ def render_risk_table(results):
         html += f'<th>{c}</th>'
     html += '</tr></thead><tbody>'
     for r in results:
-        rem = r["Remaining Lots"]
+        rem  = r["Remaining Lots"]
         util = r["Utilization %"]
         row_cls = "row-breach" if rem < 0 else ("row-warn" if util > 70 else "")
         html += f'<tr class="{row_cls}">'
         for c in cols:
             v = r[c]
-            cell = ""
             if c == "Direction":
                 dcls = "td-green" if "LONG" in v else ("td-red" if "SHORT" in v else "")
                 cell = f'<span class="{dcls}">{v}</span>'
-            elif c in ("Price", "Notional/Lot", "NOP Limit (USD)", "Current Exposure", "PnL per $1", "Margin/Lot @100x"):
-                cell = f"${v:,.2f}" if c == "Price" else f"${v:,.0f}"
+            elif c == "Price":
+                cell = f"${v:,.2f}"
+            elif c in ("Notional/Lot", "NOP Limit (USD)", "Current Exposure", "PnL per $1"):
+                cell = f"${v:,.0f}"
             elif c == "Open Lots":
                 color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#64748b")
                 cell = f'<span style="color:{color}">{v:,.2f}</span>'
@@ -284,7 +332,7 @@ def render_risk_table(results):
                 color = "#ef4444" if v > 80 else ("#f59e0b" if v > 50 else "#10b981")
                 cell = f'<span style="color:{color}">{v:.1f}%</span>'
             elif c == "Contract Size":
-                cell = f"{v:,}"
+                cell = f"{int(v):,}"
             else:
                 cell = str(v)
             html += f'<td>{cell}</td>'
@@ -299,13 +347,11 @@ def render_scenario_table(scenario_rows):
         html += f'<th>{c}</th>'
     html += '</tr></thead><tbody>'
     for r in scenario_rows:
-        pnl = r["PnL Impact ($)"]
+        pnl   = r["PnL Impact ($)"]
         color = "#10b981" if pnl > 0 else ("#ef4444" if pnl < 0 else "#94a3b8")
         html += f'''<tr>
-            <td>{r["Symbol"]}</td>
-            <td>{r["Name"]}</td>
-            <td>{r["Net Lots"]:,.2f}</td>
-            <td>{r["Contract Size"]:,}</td>
+            <td>{r["Symbol"]}</td><td>{r["Name"]}</td>
+            <td>{r["Net Lots"]:,.2f}</td><td>{r["Contract Size"]:,}</td>
             <td>${r["Price Move"]:,.2f}</td>
             <td><span style="color:{color};font-weight:600">${pnl:,.0f}</span></td>
         </tr>'''
@@ -319,11 +365,11 @@ def render_scenario_table(scenario_rows):
 def render_summary(results):
     df = pd.DataFrame(results)
     total_exposure = df["Current Exposure"].sum()
-    total_lots = df["Open Lots"].sum()
-    total_pnl1 = df["PnL per $1"].sum()
-    avg_util = df["Utilization %"].mean()
-    breach_count = int((df["Remaining Lots"] < 0).sum())
-    active_count = int((df["Open Lots"].abs() > 0).sum())
+    total_lots     = df["Open Lots"].sum()
+    total_pnl1     = df["PnL per $1"].sum()
+    avg_util       = df["Utilization %"].mean()
+    breach_count   = int((df["Remaining Lots"] < 0).sum())
+    active_count   = int((df["Open Lots"].abs() > 0).sum())
 
     cards = [
         ("TOTAL EXPOSURE",     f"${total_exposure:,.0f}",        f"{total_exposure/1e6:.1f}M USD",    "c-blue"),
@@ -353,14 +399,14 @@ def render_instrument_cards(results):
     for idx, r in enumerate(results):
         with card_cols[idx % len(card_cols)]:
             direction = r["Direction"]
-            dir_cls = "dir-long" if "LONG" in direction else ("dir-short" if "SHORT" in direction else "dir-flat")
+            dir_cls   = "dir-long" if "LONG" in direction else ("dir-short" if "SHORT" in direction else "dir-flat")
             lots_color = "#10b981" if r["Open Lots"] > 0 else ("#ef4444" if r["Open Lots"] < 0 else "#64748b")
-            util = r["Utilization %"]
-            bar_color = "#ef4444" if util > 80 else ("#f59e0b" if util > 50 else "#10b981")
-            bar_width = min(util, 100)
+            util       = r["Utilization %"]
+            bar_color  = "#ef4444" if util > 80 else ("#f59e0b" if util > 50 else "#10b981")
+            bar_width  = min(util, 100)
             status_cls = "b-breach" if r["Remaining Lots"] < 0 else ("b-warn" if util > 70 else "b-safe")
             status_txt = "BREACH" if r["Remaining Lots"] < 0 else ("WARNING" if util > 70 else "SAFE")
-            rem_color = "#ef4444" if r["Remaining Lots"] < 0 else "#10b981"
+            rem_color  = "#ef4444" if r["Remaining Lots"] < 0 else "#10b981"
             st.markdown(f"""
             <div class="inst-card">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -400,15 +446,27 @@ st.markdown("""
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("## ⚙️ Controls")
+
     if st.button("🔄 Fetch Live Prices", use_container_width=True, type="primary"):
         with st.spinner("Connecting to markets…"):
-            prices = fetch_prices()
+            # Collect custom tickers from all rows
+            extra = {}
+            for r in st.session_state.rows:
+                if r["symbol"] == "Custom" and r.get("custom_ticker"):
+                    label = r.get("custom_name") or r["custom_ticker"]
+                    extra[label] = r["custom_ticker"]
+            for r in st.session_state.manual_rows:
+                if r["Symbol"] == "Custom" and r.get("custom_ticker"):
+                    label = r.get("custom_name") or r["custom_ticker"]
+                    extra[label] = r["custom_ticker"]
+            prices = fetch_prices(extra_tickers=extra if extra else None)
             if prices:
                 st.session_state.live_prices.update(prices)
                 st.session_state.fetch_ts = datetime.now().strftime("%H:%M:%S")
                 st.success(f"Fetched {len(prices)} prices")
             else:
                 st.warning("API unavailable — using defaults / manual")
+
     if st.session_state.fetch_ts:
         st.caption(f"Last fetch: {st.session_state.fetch_ts}")
 
@@ -432,13 +490,13 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### 📋 Contract Sizes")
+    st.markdown("### 📋 Default Contract Sizes")
     for sym, cfg in INSTRUMENTS.items():
         unit = "oz" if cfg["category"] == "Metals" else "unit"
         st.markdown(f"`{sym}` → **{cfg['contract_size']:,}** {unit}")
 
     st.markdown("---")
-    st.caption("NOP Calculator v3.0 · Streamlit Cloud Ready")
+    st.caption("NOP Calculator v3.1 · Streamlit Cloud Ready")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -448,79 +506,125 @@ tab1, tab2 = st.tabs(["📊 NOP Calculator", "✏️ Manual Entry"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SHARED: row input renderer (used in both tabs)
+# ─────────────────────────────────────────────────────────────────────────────
+def render_row_inputs(i, row, key_prefix="t1"):
+    """Renders input widgets for one position row. Returns updated row dict + computed result."""
+    symbol_options = list(INSTRUMENTS.keys()) + ["✏️ Custom"]
+    nop_labels     = list(NOP_OPTIONS.keys())
+
+    # Map stored "Custom" → display "✏️ Custom"
+    stored_sym = row.get("symbol", "XAUUSD")
+    display_sym = "✏️ Custom" if stored_sym == "Custom" else stored_sym
+
+    c1, c2, c3, c4, c5 = st.columns([1.3, 1.3, 1.2, 1.1, 1.1])
+
+    with c1:
+        sym_sel = st.selectbox("Symbol", symbol_options,
+            index=symbol_options.index(display_sym) if display_sym in symbol_options else 0,
+            key=f"{key_prefix}_sym_{i}")
+        is_custom = (sym_sel == "✏️ Custom")
+        sym = "Custom" if is_custom else sym_sel
+        row["symbol"] = sym
+
+    with c2:
+        nop_choice = st.selectbox("NOP Limit", nop_labels,
+            index=nop_labels.index(row.get("nop_preset", "100M")),
+            key=f"{key_prefix}_nop_{i}")
+        row["nop_preset"] = nop_choice
+        if nop_choice == "Custom":
+            nop_usd = st.number_input("Custom NOP (USD)",
+                value=int(row.get("nop_custom", 100_000_000)),
+                min_value=0, step=1_000_000, key=f"{key_prefix}_nopc_{i}")
+        else:
+            nop_usd = NOP_OPTIONS[nop_choice]
+        row["nop_custom"] = nop_usd
+
+    with c3:
+        lots = st.number_input("Open Lots (net)", value=float(row.get("open_lots", 0.0)),
+            step=0.01, format="%.2f", key=f"{key_prefix}_lots_{i}",
+            help="+ve = Long, −ve = Short")
+        row["open_lots"] = lots
+
+    with c4:
+        # Default contract size: from instrument or stored override
+        if is_custom:
+            default_cs = int(row.get("contract_size", 1)) or 1
+        else:
+            default_cs = int(row.get("contract_size", INSTRUMENTS[sym]["contract_size"]))
+        cs_val = st.number_input("Contract Size", value=default_cs,
+            min_value=1, step=1, key=f"{key_prefix}_cs_{i}",
+            help="Editable — adjusts notional & all formulas")
+        row["contract_size"] = cs_val
+
+    with c5:
+        p_over = st.number_input("Price Override", value=float(row.get("price_override", 0.0)),
+            min_value=0.0, step=0.01, format="%.2f", key=f"{key_prefix}_po_{i}",
+            help="0 = use live/default price")
+        row["price_override"] = p_over
+
+    # ── Custom symbol extra fields ──
+    if is_custom:
+        cx1, cx2, cx3 = st.columns([1.5, 1.5, 1])
+        with cx1:
+            cname = st.text_input("Symbol / Name", value=row.get("custom_name", ""),
+                placeholder="e.g. EURUSD, BTCUSD", key=f"{key_prefix}_cname_{i}")
+            row["custom_name"] = cname
+        with cx2:
+            cticker = st.text_input("Yahoo Finance Ticker", value=row.get("custom_ticker", ""),
+                placeholder="e.g. EURUSD=X, BTC-USD", key=f"{key_prefix}_cticker_{i}",
+                help="Used for Fetch Live Prices")
+            row["custom_ticker"] = cticker
+        with cx3:
+            ccat = st.selectbox("Category", CATEGORIES,
+                index=CATEGORIES.index(row.get("custom_category", "Metals")),
+                key=f"{key_prefix}_ccat_{i}")
+            row["custom_category"] = ccat
+
+    result = compute_row(
+        sym, lots, nop_usd, p_over,
+        contract_size=cs_val,
+        custom_name=row.get("custom_name", ""),
+        custom_category=row.get("custom_category", "Metals"),
+        custom_ticker=row.get("custom_ticker", ""),
+    )
+    return row, result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TAB 1 — NOP CALCULATOR
 # ─────────────────────────────────────────────────────────────────────────────
 with tab1:
     st.markdown('<div class="sec-hdr">📝 Position & Limit Inputs</div>', unsafe_allow_html=True)
-    st.caption("Select symbol, set NOP limit, enter net open lots (+ve = Long, −ve = Short). Override price if needed.")
+    st.caption("Select a symbol (or ✏️ Custom to add your own), set NOP limit, enter lots. Contract Size is fully editable — all formulas update automatically.")
 
     col_add, col_rem, _ = st.columns([1, 1, 4])
     with col_add:
-        if st.button("➕ Add Row", use_container_width=True):
-            st.session_state.rows.append({
-                "symbol": "XAUUSD", "nop_preset": "100M",
-                "nop_custom": 100_000_000, "open_lots": 0.0, "price_override": 0.0,
-            })
+        if st.button("➕ Add Row", use_container_width=True, key="t1_add"):
+            st.session_state.rows.append(_default_row())
             st.rerun()
     with col_rem:
         if len(st.session_state.rows) > 1:
-            if st.button("➖ Remove Last", use_container_width=True):
+            if st.button("➖ Remove Last", use_container_width=True, key="t1_rem"):
                 st.session_state.rows.pop()
                 st.rerun()
 
-    symbol_options = list(INSTRUMENTS.keys())
-    nop_labels = list(NOP_OPTIONS.keys())
     results = []
-
     for i, row in enumerate(st.session_state.rows):
         with st.container():
-            c1, c2, c3, c4, c5 = st.columns([1.2, 1.2, 1.2, 1, 1.2])
-            with c1:
-                sym = st.selectbox("Symbol", symbol_options,
-                    index=symbol_options.index(row["symbol"]) if row["symbol"] in symbol_options else 0,
-                    key=f"sym_{i}")
-                st.session_state.rows[i]["symbol"] = sym
-            with c2:
-                nop_choice = st.selectbox("NOP Limit", nop_labels,
-                    index=nop_labels.index(row.get("nop_preset", "100M")),
-                    key=f"nop_{i}")
-                st.session_state.rows[i]["nop_preset"] = nop_choice
-                if nop_choice == "Custom":
-                    nop_usd = st.number_input("Custom (USD)",
-                        value=int(row.get("nop_custom", 100_000_000)),
-                        min_value=0, step=1_000_000, key=f"nop_c_{i}")
-                    st.session_state.rows[i]["nop_custom"] = nop_usd
-                else:
-                    nop_usd = NOP_OPTIONS[nop_choice]
-                    st.session_state.rows[i]["nop_custom"] = nop_usd
-            with c3:
-                lots = st.number_input("Open Lots (net)", value=row.get("open_lots", 0.0),
-                    step=0.01, format="%.2f", key=f"lots_{i}", help="+ve = Long, −ve = Short")
-                st.session_state.rows[i]["open_lots"] = lots
-            with c4:
-                cs = INSTRUMENTS[sym]["contract_size"]
-                st.text_input("Contract Size", value=f"{cs:,}", disabled=True, key=f"cs_{i}")
-            with c5:
-                p_over = st.number_input("Price Override", value=row.get("price_override", 0.0),
-                    min_value=0.0, step=0.01, format="%.2f", key=f"po_{i}",
-                    help="0 = use live/default price")
-                st.session_state.rows[i]["price_override"] = p_over
-
-            results.append(compute_row(sym, lots, nop_usd, p_over))
-
+            updated_row, result = render_row_inputs(i, row, key_prefix="t1")
+            st.session_state.rows[i] = updated_row
+            results.append(result)
         if i < len(st.session_state.rows) - 1:
             st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:6px 0;'>",
                         unsafe_allow_html=True)
 
-    # ── Portfolio Summary ──
     st.markdown('<div class="sec-hdr">📊 Portfolio Summary</div>', unsafe_allow_html=True)
     df = render_summary(results)
 
-    # ── Instrument Cards ──
     st.markdown('<div class="sec-hdr">🔍 Instrument Breakdown</div>', unsafe_allow_html=True)
     render_instrument_cards(results)
 
-    # ── Full Risk Table ──
     st.markdown('<div class="sec-hdr">📋 Full Risk Calculation Table</div>', unsafe_allow_html=True)
     st.markdown(render_risk_table(results), unsafe_allow_html=True)
 
@@ -528,22 +632,18 @@ with tab1:
     st.markdown('<div class="sec-hdr">⚡ PnL Scenario Analysis</div>', unsafe_allow_html=True)
     st.caption("Estimated PnL if the market moves by the amounts below.")
     sc1, sc2, sc3 = st.columns(3)
-    with sc1:
-        move_gold = st.number_input("Gold move ($)", value=10.0, step=1.0, key="mv_g")
-    with sc2:
-        move_silver = st.number_input("Silver move ($)", value=1.0, step=0.10, key="mv_s")
-    with sc3:
-        move_index = st.number_input("Index move (pts)", value=100.0, step=10.0, key="mv_i")
+    with sc1: move_gold   = st.number_input("Gold move ($)",    value=10.0,  step=1.0,  key="mv_g")
+    with sc2: move_silver = st.number_input("Silver move ($)",  value=1.0,   step=0.10, key="mv_s")
+    with sc3: move_index  = st.number_input("Index move (pts)", value=100.0, step=10.0, key="mv_i")
 
     scenario_rows = []
     for r in results:
-        mv = move_gold if r["Symbol"] == "XAUUSD" else (move_silver if r["Symbol"] == "XAGUSD" else move_index)
+        sym_key = r["Symbol"]
+        mv = move_gold if sym_key == "XAUUSD" else (move_silver if sym_key == "XAGUSD" else move_index)
         pnl = r["Open Lots"] * r["Contract Size"] * mv
-        scenario_rows.append({
-            "Symbol": r["Symbol"], "Name": r["Name"],
+        scenario_rows.append({"Symbol": sym_key, "Name": r["Name"],
             "Net Lots": r["Open Lots"], "Contract Size": r["Contract Size"],
-            "Price Move": mv, "PnL Impact ($)": pnl,
-        })
+            "Price Move": mv, "PnL Impact ($)": pnl})
 
     st.markdown(render_scenario_table(scenario_rows), unsafe_allow_html=True)
     total_pnl_sc = sum(r["PnL Impact ($)"] for r in scenario_rows)
@@ -561,7 +661,6 @@ with tab1:
         "NOP Limit (USD)", "Notional/Lot", "NOP Max Lots", "Current Exposure",
         "Remaining Lots", "PnL per $1", "Utilization %", "Margin/Lot @100x",
     ]].copy()
-
     try:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -570,7 +669,7 @@ with tab1:
         buffer.seek(0)
         ex1, ex2, _ = st.columns([1, 1, 3])
         with ex1:
-            st.download_button("📥 Download Excel (.xlsx)", data=buffer,
+            st.download_button("📥 Download Excel", data=buffer,
                 file_name=f"NOP_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True)
@@ -589,14 +688,14 @@ with tab1:
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
     st.markdown('<div class="sec-hdr">✏️ Manual Position Entry</div>', unsafe_allow_html=True)
-    st.caption("Add rows manually. All fields are editable. Price = 0 uses the live/default price.")
+    st.caption("All fields are editable. Choose ✏️ Custom to enter any symbol. Contract Size adjusts all formulas live.")
 
-    # ── Row management buttons ──
     ma1, ma2, _ = st.columns([1, 1, 4])
     with ma1:
         if st.button("➕ Add Row", use_container_width=True, key="m_add"):
             st.session_state.manual_rows.append(
-                {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0, "Price": 0.0}
+                {"Symbol": "XAUUSD", "NOP Limit (USD)": 100_000_000, "Open Lots": 0.0,
+                 "Price": 0.0, "Contract Size": 100, "custom_name": "", "custom_ticker": "", "custom_category": "Metals"}
             )
             st.rerun()
     with ma2:
@@ -605,45 +704,83 @@ with tab2:
                 st.session_state.manual_rows.pop()
                 st.rerun()
 
-    # ── Per-row manual input ──
     manual_results = []
-    sym_opts = list(INSTRUMENTS.keys())
+    sym_opts = list(INSTRUMENTS.keys()) + ["✏️ Custom"]
 
     for i, mrow in enumerate(st.session_state.manual_rows):
         with st.container():
-            m1, m2, m3, m4, m5 = st.columns([1.2, 1.5, 1.2, 1.2, 1])
+            stored_sym = mrow.get("Symbol", "XAUUSD")
+            disp_sym   = "✏️ Custom" if stored_sym == "Custom" else stored_sym
+
+            m1, m2, m3, m4, m5 = st.columns([1.3, 1.5, 1.2, 1.2, 1.1])
+
             with m1:
-                msym = st.selectbox("Symbol", sym_opts,
-                    index=sym_opts.index(mrow["Symbol"]) if mrow["Symbol"] in sym_opts else 0,
+                msel = st.selectbox("Symbol", sym_opts,
+                    index=sym_opts.index(disp_sym) if disp_sym in sym_opts else 0,
                     key=f"msym_{i}")
+                is_custom = (msel == "✏️ Custom")
+                msym = "Custom" if is_custom else msel
                 st.session_state.manual_rows[i]["Symbol"] = msym
+
             with m2:
-                mnop = st.number_input("NOP Limit (USD)", value=int(mrow["NOP Limit (USD)"]),
+                mnop = st.number_input("NOP Limit (USD)", value=int(mrow.get("NOP Limit (USD)", 100_000_000)),
                     min_value=0, step=1_000_000, key=f"mnop_{i}")
                 st.session_state.manual_rows[i]["NOP Limit (USD)"] = mnop
+
             with m3:
-                mlots = st.number_input("Open Lots", value=float(mrow["Open Lots"]),
-                    step=0.01, format="%.2f", key=f"mlots_{i}",
-                    help="+ve = Long, −ve = Short")
+                mlots = st.number_input("Open Lots", value=float(mrow.get("Open Lots", 0.0)),
+                    step=0.01, format="%.2f", key=f"mlots_{i}", help="+ve = Long, −ve = Short")
                 st.session_state.manual_rows[i]["Open Lots"] = mlots
+
             with m4:
-                mprice = st.number_input("Price (0 = auto)", value=float(mrow["Price"]),
+                if is_custom:
+                    def_cs = int(mrow.get("Contract Size", 1)) or 1
+                else:
+                    def_cs = int(mrow.get("Contract Size", INSTRUMENTS[msym]["contract_size"]))
+                mcs = st.number_input("Contract Size", value=def_cs,
+                    min_value=1, step=1, key=f"mcs_{i}",
+                    help="Editable — adjusts notional & all formulas")
+                st.session_state.manual_rows[i]["Contract Size"] = mcs
+
+            with m5:
+                mprice = st.number_input("Price (0=auto)", value=float(mrow.get("Price", 0.0)),
                     min_value=0.0, step=0.01, format="%.2f", key=f"mprice_{i}")
                 st.session_state.manual_rows[i]["Price"] = mprice
-            with m5:
-                mcs = INSTRUMENTS[msym]["contract_size"]
-                st.text_input("Contract Size", value=f"{mcs:,}", disabled=True, key=f"mcs_{i}")
 
-            manual_results.append(compute_row(msym, mlots, mnop, mprice))
+            # Custom extra fields
+            if is_custom:
+                cx1, cx2, cx3 = st.columns([1.5, 1.5, 1])
+                with cx1:
+                    mcname = st.text_input("Symbol / Name", value=mrow.get("custom_name", ""),
+                        placeholder="e.g. EURUSD", key=f"mcname_{i}")
+                    st.session_state.manual_rows[i]["custom_name"] = mcname
+                with cx2:
+                    mcticker = st.text_input("Yahoo Finance Ticker", value=mrow.get("custom_ticker", ""),
+                        placeholder="e.g. EURUSD=X", key=f"mcticker_{i}")
+                    st.session_state.manual_rows[i]["custom_ticker"] = mcticker
+                with cx3:
+                    mccat = st.selectbox("Category", CATEGORIES,
+                        index=CATEGORIES.index(mrow.get("custom_category", "Metals")),
+                        key=f"mccat_{i}")
+                    st.session_state.manual_rows[i]["custom_category"] = mccat
+            else:
+                mcname, mcticker, mccat = "", "", "Metals"
+
+            manual_results.append(compute_row(
+                msym, mlots, mnop, mprice,
+                contract_size=mcs,
+                custom_name=mcname,
+                custom_category=mccat,
+                custom_ticker=mcticker,
+            ))
 
         if i < len(st.session_state.manual_rows) - 1:
             st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:6px 0;'>",
                         unsafe_allow_html=True)
 
-    # ── Manual Results ──
     if manual_results:
         st.markdown('<div class="sec-hdr">📊 Manual Entry Summary</div>', unsafe_allow_html=True)
-        render_summary(manual_results)
+        mdf_full = render_summary(manual_results)
 
         st.markdown('<div class="sec-hdr">🔍 Instrument Breakdown</div>', unsafe_allow_html=True)
         render_instrument_cards(manual_results)
@@ -651,7 +788,6 @@ with tab2:
         st.markdown('<div class="sec-hdr">📋 Risk Calculation Table</div>', unsafe_allow_html=True)
         st.markdown(render_risk_table(manual_results), unsafe_allow_html=True)
 
-        # ── Manual Export ──
         st.markdown('<div class="sec-hdr">📥 Export</div>', unsafe_allow_html=True)
         mdf = pd.DataFrame(manual_results)[[
             "Symbol", "Name", "Contract Size", "Price", "Open Lots", "Direction",
@@ -678,12 +814,12 @@ with tab2:
                 file_name=f"Manual_NOP_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv")
 
-# ── Footer ───────────────────────────────────────────────────────────────────
+# ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
 <div style="text-align:center;padding:14px 0;">
     <span style="color:#64748b;font-size:12px;">
-    NOP Calculator v3.0 &nbsp;·&nbsp;
+    NOP Calculator v3.1 &nbsp;·&nbsp;
     Notional = Price × Contract Size &nbsp;·&nbsp;
     NOP Max = Limit ÷ Notional &nbsp;·&nbsp;
     Built for dealing desks
