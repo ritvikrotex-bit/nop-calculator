@@ -225,36 +225,30 @@ def fetch_prices(extra_tickers=None):
     fetched = {}
     try:
         import yfinance as yf
-        # Build full ticker map: built-ins + custom
         ticker_map = {v["yahoo"]: k for k, v in INSTRUMENTS.items()}
         if extra_tickers:
             ticker_map.update({v: k for k, v in extra_tickers.items() if v})
 
-        tickers_str = " ".join(ticker_map.keys())
-        data = yf.download(tickers_str, period="2d", group_by="ticker", progress=False, auto_adjust=True)
-
         for yahoo_sym, local_sym in ticker_map.items():
             try:
-                col = data[yahoo_sym]["Close"] if len(ticker_map) > 1 else data["Close"]
-                close = col.dropna().iloc[-1]
-                if close > 0:
-                    fetched[local_sym] = round(float(close), 2)
+                hist = yf.Ticker(yahoo_sym).history(period="5d")
+                if not hist.empty:
+                    close = hist["Close"].dropna().iloc[-1]
+                    if close > 0:
+                        fetched[local_sym] = round(float(close), 2)
             except Exception:
-                try:
-                    hist = yf.Ticker(yahoo_sym).history(period="5d")
-                    if not hist.empty:
-                        fetched[local_sym] = round(float(hist["Close"].iloc[-1]), 2)
-                except Exception:
-                    pass
+                pass
     except ImportError:
         pass
     return fetched
 
 
-def get_price(symbol, custom_ticker=""):
+def get_price(symbol, custom_label=""):
     if symbol in st.session_state.live_prices:
         return st.session_state.live_prices[symbol]
     if symbol == "Custom":
+        if custom_label and custom_label in st.session_state.live_prices:
+            return st.session_state.live_prices[custom_label]
         return 0.0
     return INSTRUMENTS[symbol]["default_price"]
 
@@ -269,7 +263,7 @@ def compute_row(symbol, open_lots, nop_limit_usd, price_override=0.0,
         name     = custom_name or "Custom"
         category = custom_category
         default_cs = 1
-        price = price_override if price_override > 0 else get_price(symbol, custom_ticker)
+        price = price_override if price_override > 0 else get_price(symbol, custom_name or custom_ticker)
     else:
         cfg      = INSTRUMENTS[symbol]
         name     = cfg["name"]
